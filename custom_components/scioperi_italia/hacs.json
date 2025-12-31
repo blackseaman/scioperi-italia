@@ -4,7 +4,5 @@
   "filename": "scioperi_italia",
   "country": ["IT"],
   "homeassistant": "2023.1.0",
-  "render_readme": true,
-  "domains": ["sensor", "calendar"],
-  "iot_class": "Cloud Polling"
+  "render_readme": true
 }
