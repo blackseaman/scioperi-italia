@@ -2,34 +2,71 @@
   "config": {
     "step": {
       "user": {
-        "title": "Scioperi Italia",
-        "description": "Configura l'integrazione per monitorare gli scioperi in Italia",
+        "title": "Configura Scioperi Italia",
+        "description": "📍 Casa rilevata automaticamente dalle impostazioni Home Assistant\n\nConfig ura le tue preferenze:",
         "data": {
-          "rss_url": "URL Feed RSS (lascia default)",
-          "region_filter": "Filtra per Regione",
-          "sector_filter": "Filtra per Settore"
+          "radius": "Raggio di ricerca (km)",
+          "favorite_sectors": "Settori preferiti",
+          "enable_notifications": "Abilita notifiche automatiche",
+          "notification_time": "Notifica ore prima dello sciopero"
         }
       }
     },
     "error": {
-      "cannot_connect": "Impossibile connettersi al feed RSS",
-      "invalid_feed": "Feed RSS non valido",
-      "unknown": "Errore sconosciuto"
-    },
-    "abort": {
-      "already_configured": "Integrazione già configurata"
+      "no_home_coordinates": "Impossibile rilevare le coordinate di casa. Configura la posizione in Home Assistant."
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Opzioni Scioperi Italia",
-        "description": "Modifica i filtri per gli scioperi",
+        "description": "🏠 Casa: {home_location}\n🎯 {radius_info}",
         "data": {
-          "region_filter": "Filtra per Regione",
-          "sector_filter": "Filtra per Settore"
+          "radius": "Raggio di ricerca (km)",
+          "favorite_sectors": "Settori preferiti",
+          "enable_notifications": "Abilita notifiche automatiche",
+          "notification_time": "Notifica ore prima dello sciopero",
+          "work_location": "Posizione lavoro (opzionale, formato: lat,lon)"
         }
       }
+    }
+  },
+  "services": {
+    "check_route": {
+      "name": "Controlla Percorso",
+      "description": "Verifica scioperi lungo un percorso",
+      "fields": {
+        "destination_lat": {
+          "name": "Latitudine destinazione",
+          "description": "Latitudine del punto di destinazione"
+        },
+        "destination_lon": {
+          "name": "Longitudine destinazione",
+          "description": "Longitudine del punto di destinazione"
+        },
+        "radius_km": {
+          "name": "Raggio (km)",
+          "description": "Raggio di ricerca intorno alla destinazione"
+        }
+      }
+    },
+    "notify_strike": {
+      "name": "Notifica Scioperi",
+      "description": "Invia notifica con stato scioperi",
+      "fields": {
+        "title": {
+          "name": "Titolo",
+          "description": "Titolo notifica (opzionale)"
+        },
+        "message": {
+          "name": "Messaggio",
+          "description": "Messaggio notifica (opzionale, generato automaticamente se vuoto)"
+        }
+      }
+    },
+    "refresh_data": {
+      "name": "Aggiorna Dati",
+      "description": "Forza aggiornamento dati scioperi"
     }
   }
 }

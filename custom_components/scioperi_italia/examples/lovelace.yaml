@@ -1,39 +1,99 @@
-# =================================================================
-# ESEMPI LOVELACE DASHBOARD - SCIOPERI ITALIA
-# =================================================================
+# =================================================
+# DASHBOARD LOVELACE SCIOPERI ITALIA V2.0
+# Con visualizzazione mappa e sensori location-aware
+# =================================================
 
-# DASHBOARD COMPLETA
+# ===============================================
+# VISTA COMPLETA SCIOPERI
+# ===============================================
 views:
-  - title: Scioperi Italia
+  - title: Scioperi
     path: scioperi
     icon: mdi:alert-circle
     badges: []
     cards:
-      # === CARD RIEPILOGO ===
-      - type: entities
-        title: 📊 Riepilogo scioperi
-        show_header_toggle: false
-        entities:
-          - entity: sensor.scioperi_totali
-            name: Totali Futuri
-            icon: mdi:alert-circle-outline
-          - entity: sensor.scioperi_oggi
+      # ============ RIEPILOGO RAPIDO ============
+      - type: horizontal-stack
+        cards:
+          - type: statistic
+            entity: sensor.scioperi_vicini
+            name: Vicini
+            icon: mdi:map-marker-radius
+            unit: nel raggio
+          - type: statistic
+            entity: sensor.scioperi_oggi
             name: Oggi
             icon: mdi:calendar-today
-          - entity: sensor.scioperi_prossimo
-            name: Prossimo
-            icon: mdi:calendar-clock
-            secondary_info: last-changed
-      # === CARD STATISTICHE PER SETTORE ===
-      - type: horizontal-stack
+          - type: statistic
+            entity: sensor.scioperi_domani
+            name: Domani
+            icon: mdi:calendar-tomorrow
+
+      # ============ PROSSIMO SCIOPERO VICINO ============
+      - type: entities
+        title: 🎯 Prossimo sciopero vicino
+        entities:
+          - entity: sensor.scioperi_prossimo_vicino
+            name: Data e Distanza
+          - type: attribute
+            entity: sensor.scioperi_prossimo_vicino
+            attribute: sector
+            name: Settore
+          - type: attribute
+            entity: sensor.scioperi_prossimo_vicino
+            attribute: region
+            name: Regione
+          - type: attribute
+            entity: sensor.scioperi_prossimo_vicino
+            attribute: modality
+            name: Modalità
+          - type: attribute
+            entity: sensor.scioperi_prossimo_vicino
+            attribute: distance_km
+            name: Distanza
+            suffix: " km"
+
+      # ============ MAPPA SCIOPERI (Opzionale con custom card) ============
+      - type: map
+        title: 📍 Mappa scioperi
+        default_zoom: 8
+        entities:
+          - entity: zone.home
+            label_mode: name
+
+      # ============ MARKDOWN INFO DETTAGLIATE ============
+      - type: markdown
+        title: 📊 Dettagli scioperi vicini
+        content: |
+          **Raggio configurato:** {{ state_attr('sensor.scioperi_vicini', 'radius_km') }}km
+          **Casa:** {{ state_attr('sensor.scioperi_vicini', 'home_location') }}
+          
+          ---
+          
+          {% if state_attr('sensor.scioperi_vicini', 'strikes') %}
+          ### Scioperi nel Raggio:
+          {% for strike in state_attr('sensor.scioperi_vicini', 'strikes')[:5] %}
+          **{{ loop.index }}. {{ strike.sector }}**
+          - 📅 Data: {{ strike.start_date }}
+          - 📍 Luogo: {{ strike.region }}
+          - 🎯 Distanza: {{ strike.distance }}
+          - ⏰ Modalità: {{ strike.modality }}
+          
+          {% endfor %}
+          {% else %}
+          ✅ **Nessuno sciopero nel raggio configurato**
+          {% endif %}
+
+      # ============ SETTORI - GRID ============
+      - type: grid
+        title: 🚦 Scioperi per settore
+        columns: 3
+        square: false
         cards:
           - type: statistic
             entity: sensor.scioperi_tpl
             name: TPL
             icon: mdi:bus
-            period:
-              calendar:
-                period: month
           - type: statistic
             entity: sensor.scioperi_aereo
             name: Aerei
@@ -46,166 +106,138 @@ views:
             entity: sensor.scioperi_trasporto_merci_e_logistica
             name: Logistica
             icon: mdi:truck
-      # === CARD DETTAGLI PROSSIMO SCIOPERO ===
-      - type: markdown
-        title: 📅 Dettagli prossimo sciopero
-        content: |
-          {% if state_attr('sensor.scioperi_prossimo', 'sector') %}
-          ### {{ state_attr('sensor.scioperi_prossimo', 'sector') }}
-          
-          **📅 Data:** {{ state_attr('sensor.scioperi_prossimo', 'start_date') }}
-          
-          **📍 Luogo:** {{ state_attr('sensor.scioperi_prossimo', 'region') }}
-          {% if state_attr('sensor.scioperi_prossimo', 'province') != 'Tutte' %}
-          ({{ state_attr('sensor.scioperi_prossimo', 'province') }})
-          {% endif %}
-          
-          **⏰ Modalità:** {{ state_attr('sensor.scioperi_prossimo', 'modality') }}
-          
-          **🎯 Rilevanza:** {{ state_attr('sensor.scioperi_prossimo', 'relevance') }}
-          
-          **👥 Sindacati:** {{ state_attr('sensor.scioperi_prossimo', 'unions') }}
-          
-          **📋 Categoria:** {{ state_attr('sensor.scioperi_prossimo', 'category') }}
-          {% else %}
-          ### ✅ Nessuno sciopero programmato
-          {% endif %}
-      # === CALENDARIO ===
+          - type: statistic
+            entity: sensor.scioperi_marittimo
+            name: Marittimo
+            icon: mdi:ferry
+          - type: statistic
+            entity: sensor.scioperi_preferiti
+            name: Preferiti
+            icon: mdi:star
+
+      # ============ CALENDARIO ============
       - type: calendar
-        title: 📆 Calendario scioperi
+        title: 📅 Calendario scioperi
         entities:
           - calendar.scioperi_italia
         initial_view: listWeek
-      # === CONDITIONAL CARD - SCIOPERI OGGI ===
+
+      # ============ AZIONI RAPIDE ============
+      - type: entities
+        title: ⚡ Azioni
+        entities:
+          - type: button
+            name: 🔄 Aggiorna dati
+            icon: mdi:refresh
+            tap_action:
+              action: call-service
+              service: scioperi_italia.refresh_data
+          - type: button
+            name: 🔔 Notifica stato
+            icon: mdi:bell
+            tap_action:
+              action: call-service
+              service: scioperi_italia.notify_strike
+          - type: button
+            name: 📍 Controlla percorso
+            icon: mdi:map-marker-path
+            tap_action:
+              action: call-service
+              service: scioperi_italia.check_route
+              service_data:
+                destination_lat: 44.7007
+                destination_lon: 8.0357
+                radius_km: 10
+
+      # ============ SETTORI PREFERITI (se configurati) ============
       - type: conditional
         conditions:
           - condition: numeric_state
-            entity: sensor.scioperi_oggi
+            entity: sensor.scioperi_preferiti
             above: 0
         card:
           type: markdown
-          title: ⚠️ SCIOPERI OGGI
-          card_mod:
-            style: |
-              ha-card {
-                background-color: rgba(255, 0, 0, 0.1);
-                border: 2px solid red;
-              }
+          title: ⭐ Scioperi settori preferiti
           content: |
-            ## ⚠️ ATTENZIONE
+            {% set strikes = state_attr('sensor.scioperi_preferiti', 'strikes') %}
+            {% set sectors = state_attr('sensor.scioperi_preferiti', 'favorite_sectors') %}
             
-            Oggi ci sono **{{ states('sensor.scioperi_oggi') }}** scioperi in corso!
+            **Settori monitorati:** {{ sectors | join(', ') }}
             
-            {% for strike in state_attr('sensor.scioperi_oggi', 'strikes') %}
             ---
+            
+            {% for strike in strikes[:5] %}
             **{{ strike.sector }}**
-            - Regione: {{ strike.region }}
-            - Orario: {{ strike.modality }}
+            - 📅 {{ strike.start_date }}
+            - 📍 {{ strike.region }}
+            - 🎯 {{ strike.distance }}
+            {% if strike.in_radius %}✅ Nel raggio{% endif %}
+            
             {% endfor %}
-      # === CARD SCIOPERI PER SETTORE (DETTAGLIO) ===
-      - type: entities
-        title: 🚌 Dettaglio TPL
-        show_header_toggle: false
-        entities:
-          - type: custom:fold-entity-row
-            head:
-              entity: sensor.scioperi_tpl
-              name: Trasporto Pubblico Locale
-            padding: 0
-            entities:
-              - type: markdown
-                content: |
-                  {% for strike in state_attr('sensor.scioperi_tpl', 'strikes') %}
-                  - **{{ strike.start_date }}** - {{ strike.region }}
-                  {% endfor %}
-      - type: entities
-        title: ✈️ Dettaglio aerei
-        show_header_toggle: false
-        entities:
-          - type: custom:fold-entity-row
-            head:
-              entity: sensor.scioperi_aereo
-              name: Settore aereo
-            padding: 0
-            entities:
-              - type: markdown
-                content: |
-                  {% for strike in state_attr('sensor.scioperi_aereo', 'strikes') %}
-                  - **{{ strike.start_date }}** - {{ strike.region }} - {{ strike.modality }}
-                  {% endfor %}
-# =================================================================
-# CARD COMPATTA PER LA DASHBOARD PRINCIpALE
-# =================================================================
 
-# Card minimalista per dashboard principale
-- type: custom:mushroom-template-card
-  primary: "{{ states('sensor.scioperi_totali') }} Scioperi"
-  secondary: >
-    {% if states('sensor.scioperi_oggi') | int > 0 %}
-      ⚠️ {{ states('sensor.scioperi_oggi') }} oggi
-    {% else %}
-      Prossimo: {{ states('sensor.scioperi_prossimo') }}
-    {% endif %}
-  icon: mdi:alert-circle
-  icon_color: >
-    {% if states('sensor.scioperi_oggi') | int > 0 %}
-      red
-    {% elif states('sensor.scioperi_totali') | int > 5 %}
-      orange
-    {% else %}
-      green
-    {% endif %}
-  tap_action:
-    action: navigate
-    navigation_path: /lovelace/scioperi
+# ===============================================
+# CARD SINGOLE ALTERNATIVE
+# ===============================================
 
-# =================================================================
-# BADGE PER TOP BAR
-# =================================================================
+# ============ CARD MINI - Solo Conteggi ============
+mini_card:
+  type: glance
+  title: Scioperi
+  entities:
+    - entity: sensor.scioperi_vicini
+      name: Vicini
+    - entity: sensor.scioperi_oggi
+      name: Oggi
+    - entity: sensor.scioperi_domani
+      name: Domani
+    - entity: sensor.scioperi_totali
+      name: Totali
 
-- type: entity
-  entity: sensor.scioperi_oggi
-  name: Scioperi Oggi
-  icon: mdi:alert
-
-# =================================================================
-# PICTURE ELEMENTS CARD (AVANZATA)
-# =================================================================
-
-- type: picture-elements
-  image: /local/PLACEHOLDER.jpg # Definisci un'immagine di sfondo appropriata
-  elements:
-    - type: state-label
-      entity: sensor.scioperi_totali
-      prefix: "Scioperi: "
-      style:
-        top: 10%
-        left: 10%
-        font-size: 20px
-        color: white
-        background-color: rgba(0, 0, 0, 0.5)
-        padding: 10px
-        border-radius: 5px
-    - type: state-label
+# ============ CARD ALERT - Sciopero Oggi ============
+alert_card:
+  type: conditional
+  conditions:
+    - condition: numeric_state
       entity: sensor.scioperi_oggi
-      prefix: "Oggi: "
-      style:
-        top: 25%
-        left: 10%
-        font-size: 16px
-        color: red
-        background-color: rgba(255, 255, 255, 0.9)
-        padding: 8px
-        border-radius: 5px
+      above: 0
+  card:
+    type: markdown
+    content: |
+      # 🚨 SCIOPERO OGGI!
+      
+      ### {{ states('sensor.scioperi_oggi') }} sciopero/i in corso
+      
+      {% for strike in state_attr('sensor.scioperi_oggi', 'strikes') %}
+      **{{ strike.sector }}**
+      - {{ strike.region }}
+      - {{ strike.modality }}
+      - {{ strike.distance }}
+      {% endfor %}
+    card_mod:
+      style: |
+        ha-card {
+          background: rgba(255, 0, 0, 0.1);
+          border-left: 4px solid red;
+        }
 
-# =================================================================
-# BUTTON CARD (CUSTOM)
-# =================================================================
+# ============ CARD GAUGE - Scioperi Vicini ============
+gauge_card:
+  type: gauge
+  entity: sensor.scioperi_vicini
+  name: Scioperi nel raggio
+  unit: scioperi
+  min: 0
+  max: 10
+  severity:
+    green: 0
+    yellow: 2
+    red: 5
 
-- type: custom:button-card
-  entity: sensor.scioperi_totali
-  name: Scioperi Italia
-  icon: mdi:alert-circle
+# ============ BUTTON CARD CUSTOM ============
+button_card_custom:
+  type: custom:button-card
+  entity: sensor.scioperi_vicini
+  name: Scioperi vicini
   show_state: true
   state:
     - value: 0
@@ -213,17 +245,75 @@ views:
       icon: mdi:check-circle
     - value: 1
       color: orange
+      icon: mdi:alert
       operator: '>='
-    - value: 10
+    - value: 3
       color: red
+      icon: mdi:alert-circle
       operator: '>='
   tap_action:
     action: more-info
-  styles:
-    card:
-      - font-size: 16px
-      - height: 100px
-    name:
-      - font-weight: bold
-    state:
-      - font-size: 20px
+
+# ============ MUSHROOM CARDS (se installate) ============
+mushroom_entity:
+  type: custom:mushroom-entity-card
+  entity: sensor.scioperi_vicini
+  name: Scioperi vicini
+  icon: mdi:map-marker-radius
+  icon_color: |
+    {% if states('sensor.scioperi_vicini') | int == 0 %}
+    green
+    {% elif states('sensor.scioperi_vicini') | int < 3 %}
+    orange
+    {% else %}
+    red
+    {% endif %}
+
+mushroom_chips:
+  type: custom:mushroom-chips-card
+  chips:
+    - type: entity
+      entity: sensor.scioperi_oggi
+      icon: mdi:calendar-today
+      icon_color: red
+    - type: entity
+      entity: sensor.scioperi_domani
+      icon: mdi:calendar-tomorrow
+      icon_color: orange
+    - type: entity
+      entity: sensor.scioperi_vicini
+      icon: mdi:map-marker-radius
+      icon_color: blue
+
+# ============ AUTO-ENTITIES (filtra scioperi attivi) ============
+auto_entities_card:
+  type: custom:auto-entities-card
+  card:
+    type: entities
+    title: Sensori scioperi attivi
+  filter:
+    include:
+      - entity_id: "sensor.scioperi_*"
+        state: "> 0"
+    exclude:
+      - entity_id: "*totali*"
+  sort:
+    method: state
+    reverse: true
+
+# ============ APEXCHARTS (Grafico Scioperi) ============
+apex_chart:
+  type: custom:apexcharts-card
+  header:
+    show: true
+    title: Trend scioperi
+  series:
+    - entity: sensor.scioperi_vicini
+      name: Vicini
+      type: column
+    - entity: sensor.scioperi_oggi
+      name: Oggi
+      type: line
+    - entity: sensor.scioperi_domani
+      name: Domani
+      type: line

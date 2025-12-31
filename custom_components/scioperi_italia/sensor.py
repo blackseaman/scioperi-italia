@@ -1,8 +1,8 @@
-"""Sensor platform for Scioperi Italia."""
+"""Sensor platform per Scioperi Italia V2."""
 import logging
 from datetime import datetime
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -18,8 +18,18 @@ from .const import (
     ATTR_END_DATE,
     ATTR_MODALITY,
     ATTR_RELEVANCE,
+    ATTR_DISTANCE,
+    ATTR_IN_RADIUS,
+    ICON_DEFAULT,
+    ICON_BUS,
+    ICON_TRAIN,
+    ICON_AIRPLANE,
+    ICON_SHIP,
+    ICON_TRUCK,
+    ICON_LOCATION,
 )
 from .coordinator import ScioperiCoordinator
+from .utils import format_distance
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,7 +39,7 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up Scioperi Italia sensors."""
+    """Set up Scioperi Italia sensors V2."""
     coordinator: ScioperiCoordinator = hass.data[DOMAIN][entry.entry_id]
 
     sensors = []
@@ -37,7 +47,13 @@ async def async_setup_entry(
     # Main sensors
     sensors.append(ScioperiCountSensor(coordinator))
     sensors.append(ScioperiTodaySensor(coordinator))
+    sensors.append(ScioperiTomorrowSensor(coordinator))
     sensors.append(ScioperiNextSensor(coordinator))
+    
+    # NEW: Location-aware sensors
+    sensors.append(ScioperiNearbySensor(coordinator))
+    sensors.append(ScioperiNextNearbySensor(coordinator))
+    sensors.append(ScioperiiFavoritesSensor(coordinator))
     
     # Sector-specific sensors
     for sector in SECTORS:
@@ -50,12 +66,15 @@ async def async_setup_entry(
 class ScioperiBaseSensor(CoordinatorEntity, SensorEntity):
     """Base class for Scioperi Italia sensors."""
 
+    _attr_state_class = None
+
     def __init__(self, coordinator: ScioperiCoordinator, name: str, icon: str) -> None:
         """Initialize base sensor."""
         super().__init__(coordinator)
         self._attr_name = f"Scioperi {name}"
         self._attr_icon = icon
-        self._attr_unique_id = f"scioperi_{name.lower().replace(' ', '_')}"
+        self._attr_unique_id = f"{DOMAIN}_{name.lower().replace(' ', '_')}"
+        self._attr_has_entity_name = False
 
 
 class ScioperiCountSensor(ScioperiBaseSensor):
@@ -63,7 +82,7 @@ class ScioperiCountSensor(ScioperiBaseSensor):
 
     def __init__(self, coordinator: ScioperiCoordinator) -> None:
         """Initialize sensor."""
-        super().__init__(coordinator, "Totali", "mdi:alert-circle")
+        super().__init__(coordinator, "Totali", ICON_DEFAULT)
 
     @property
     def native_value(self) -> int:
@@ -71,9 +90,14 @@ class ScioperiCountSensor(ScioperiBaseSensor):
         return len(self.coordinator.strikes)
 
     @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
+
+    @property
     def extra_state_attributes(self) -> dict:
         """Return the state attributes."""
-        strikes = self.coordinator.strikes[:10]  # Limit to 10 for attributes
+        strikes = self.coordinator.strikes[:10]
         
         return {
             ATTR_STRIKES: [
@@ -81,11 +105,14 @@ class ScioperiCountSensor(ScioperiBaseSensor):
                     "sector": s.get(ATTR_SECTOR, ""),
                     "region": s.get(ATTR_REGION, ""),
                     "start_date": s.get("start_date_str", ""),
-                    "relevance": s.get(ATTR_RELEVANCE, ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                    "in_radius": s.get(ATTR_IN_RADIUS, False),
                 }
                 for s in strikes
             ],
             "last_update": self.coordinator.data.get("last_update"),
+            "home_location": f"{self.coordinator.home_lat:.4f}, {self.coordinator.home_lon:.4f}",
+            "radius_km": self.coordinator.radius,
         }
 
 
@@ -102,6 +129,11 @@ class ScioperiTodaySensor(ScioperiBaseSensor):
         return len(self.coordinator.today_strikes)
 
     @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
+
+    @property
     def extra_state_attributes(self) -> dict:
         """Return the state attributes."""
         strikes = self.coordinator.today_strikes
@@ -112,8 +144,43 @@ class ScioperiTodaySensor(ScioperiBaseSensor):
                     "sector": s.get(ATTR_SECTOR, ""),
                     "region": s.get(ATTR_REGION, ""),
                     "modality": s.get(ATTR_MODALITY, ""),
-                    "unions": s.get("unions", ""),
-                    "category": s.get("category", ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                }
+                for s in strikes
+            ]
+        }
+
+
+class ScioperiTomorrowSensor(ScioperiBaseSensor):
+    """Sensor for tomorrow's strikes."""
+
+    def __init__(self, coordinator: ScioperiCoordinator) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, "Domani", "mdi:calendar-tomorrow")
+
+    @property
+    def native_value(self) -> int:
+        """Return the state."""
+        return len(self.coordinator.tomorrow_strikes)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        strikes = self.coordinator.tomorrow_strikes
+        
+        return {
+            ATTR_STRIKES: [
+                {
+                    "sector": s.get(ATTR_SECTOR, ""),
+                    "region": s.get(ATTR_REGION, ""),
+                    "modality": s.get(ATTR_MODALITY, ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                    "in_radius": s.get(ATTR_IN_RADIUS, False),
                 }
                 for s in strikes
             ]
@@ -156,7 +223,122 @@ class ScioperiNextSensor(ScioperiBaseSensor):
             ATTR_RELEVANCE: next_strike.get(ATTR_RELEVANCE, ""),
             "unions": next_strike.get("unions", ""),
             "category": next_strike.get("category", ""),
-            "guid": next_strike.get("guid", ""),
+            ATTR_DISTANCE: format_distance(next_strike.get(ATTR_DISTANCE, 0)),
+            ATTR_IN_RADIUS: next_strike.get(ATTR_IN_RADIUS, False),
+        }
+
+
+class ScioperiNearbySensor(ScioperiBaseSensor):
+    """Sensor for nearby strikes (in radius)."""
+
+    def __init__(self, coordinator: ScioperiCoordinator) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, "Vicini", ICON_LOCATION)
+
+    @property
+    def native_value(self) -> int:
+        """Return the state."""
+        return len(self.coordinator.nearby_strikes)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        strikes = self.coordinator.nearby_strikes[:10]
+        
+        return {
+            "radius_km": self.coordinator.radius,
+            "home_location": f"{self.coordinator.home_lat:.4f}, {self.coordinator.home_lon:.4f}",
+            ATTR_STRIKES: [
+                {
+                    "sector": s.get(ATTR_SECTOR, ""),
+                    "region": s.get(ATTR_REGION, ""),
+                    "start_date": s.get("start_date_str", ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                    "modality": s.get(ATTR_MODALITY, ""),
+                }
+                for s in strikes
+            ]
+        }
+
+
+class ScioperiNextNearbySensor(ScioperiBaseSensor):
+    """Sensor for next nearby strike."""
+
+    def __init__(self, coordinator: ScioperiCoordinator) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, "Prossimo Vicino", ICON_LOCATION)
+
+    @property
+    def native_value(self) -> str:
+        """Return the state."""
+        next_strike = self.coordinator.get_next_nearby_strike()
+        if not next_strike:
+            return "Nessuno"
+        
+        start = next_strike.get("start_date")
+        if start:
+            distance = next_strike.get(ATTR_DISTANCE, 0)
+            return f"{start.strftime('%d/%m/%Y')} ({format_distance(distance)})"
+        return "Sconosciuto"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        next_strike = self.coordinator.get_next_nearby_strike()
+        if not next_strike:
+            return {"radius_km": self.coordinator.radius}
+        
+        return {
+            ATTR_SECTOR: next_strike.get(ATTR_SECTOR, ""),
+            ATTR_REGION: next_strike.get(ATTR_REGION, ""),
+            ATTR_START_DATE: next_strike.get("start_date_str", ""),
+            ATTR_MODALITY: next_strike.get(ATTR_MODALITY, ""),
+            ATTR_DISTANCE: format_distance(next_strike.get(ATTR_DISTANCE, 0)),
+            "distance_km": next_strike.get(ATTR_DISTANCE, 0),
+            "radius_km": self.coordinator.radius,
+            "unions": next_strike.get("unions", ""),
+        }
+
+
+class ScioperiiFavoritesSensor(ScioperiBaseSensor):
+    """Sensor for favorite sectors strikes."""
+
+    def __init__(self, coordinator: ScioperiCoordinator) -> None:
+        """Initialize sensor."""
+        super().__init__(coordinator, "Preferiti", "mdi:star")
+
+    @property
+    def native_value(self) -> int:
+        """Return the state."""
+        return len(self.coordinator.favorite_strikes)
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return the state attributes."""
+        strikes = self.coordinator.favorite_strikes[:10]
+        
+        return {
+            "favorite_sectors": self.coordinator.favorite_sectors,
+            ATTR_STRIKES: [
+                {
+                    "sector": s.get(ATTR_SECTOR, ""),
+                    "region": s.get(ATTR_REGION, ""),
+                    "start_date": s.get("start_date_str", ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                    "in_radius": s.get(ATTR_IN_RADIUS, False),
+                }
+                for s in strikes
+            ]
         }
 
 
@@ -176,18 +358,23 @@ class ScioperiSectorSensor(ScioperiBaseSensor):
     def _get_sector_icon(sector: str) -> str:
         """Get icon for sector."""
         icons = {
-            "Trasporto pubblico locale": "mdi:bus",
-            "Aereo": "mdi:airplane",
-            "Ferroviario": "mdi:train",
-            "Trasporto merci e logistica": "mdi:truck",
-            "Marittimo": "mdi:ferry",
+            "Trasporto pubblico locale": ICON_BUS,
+            "Aereo": ICON_AIRPLANE,
+            "Ferroviario": ICON_TRAIN,
+            "Trasporto merci e logistica": ICON_TRUCK,
+            "Marittimo": ICON_SHIP,
         }
-        return icons.get(sector, "mdi:alert")
+        return icons.get(sector, ICON_DEFAULT)
 
     @property
     def native_value(self) -> int:
         """Return the state."""
         return len(self.coordinator.get_strikes_by_sector(self.sector))
+
+    @property
+    def native_unit_of_measurement(self) -> str:
+        """Return unit."""
+        return "scioperi"
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -201,6 +388,8 @@ class ScioperiSectorSensor(ScioperiBaseSensor):
                     "region": s.get(ATTR_REGION, ""),
                     "start_date": s.get("start_date_str", ""),
                     "modality": s.get(ATTR_MODALITY, ""),
+                    "distance": format_distance(s.get(ATTR_DISTANCE, 0)),
+                    "in_radius": s.get(ATTR_IN_RADIUS, False),
                 }
                 for s in strikes
             ]

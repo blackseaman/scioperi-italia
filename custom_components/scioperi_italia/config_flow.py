@@ -1,100 +1,132 @@
-"""Config flow for Scioperi Italia."""
+"""Config flow per Scioperi Italia V2."""
 import logging
-from typing import Any
-
 import voluptuous as vol
 
 from homeassistant import config_entries
 from homeassistant.core import callback
-from homeassistant.data_entry_flow import FlowResult
+from homeassistant.helpers import config_validation as cv
 
 from .const import (
     DOMAIN,
-    DEFAULT_RSS_URL,
-    CONF_RSS_URL,
-    CONF_REGION_FILTER,
-    CONF_SECTOR_FILTER,
-    REGIONS,
+    CONF_RADIUS,
+    CONF_FAVORITE_SECTORS,
+    CONF_ENABLE_NOTIFICATIONS,
+    CONF_NOTIFICATION_TIME,
+    CONF_WORK_LOCATION,
+    RADIUS_OPTIONS,
+    DEFAULT_RADIUS,
     SECTORS,
+    NOTIFICATION_TIMES,
+    DEFAULT_NOTIFICATION_TIME,
 )
+from .utils import get_home_coordinates
 
 _LOGGER = logging.getLogger(__name__)
 
 
-class ScioperiConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
-    """Handle a config flow for Scioperi Italia."""
+class ScioperiItaliaConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
+    """Handle config flow."""
 
-    VERSION = 1
+    VERSION = 2
 
-    async def async_step_user(
-        self, user_input: dict[str, Any] | None = None
-    ) -> FlowResult:
-        """Handle the initial step."""
+    async def async_step_user(self, user_input=None):
+        """Handle initial step."""
         errors = {}
 
         if user_input is not None:
-            await self.async_set_unique_id("scioperi_italia")
-            self._abort_if_unique_id_configured()
+            # Ottieni coordinate casa automaticamente
+            home_coords = get_home_coordinates(self.hass)
             
-            return self.async_create_entry(
-                title="Scioperi Italia",
-                data=user_input,
-            )
+            if not home_coords:
+                errors["base"] = "no_home_coordinates"
+            else:
+                # Salva configurazione
+                return self.async_create_entry(
+                    title="Scioperi Italia",
+                    data={
+                        "home_latitude": home_coords[0],
+                        "home_longitude": home_coords[1],
+                    },
+                    options=user_input,
+                )
 
-        data_schema = vol.Schema(
-            {
-                vol.Optional(
-                    CONF_RSS_URL, 
-                    default=DEFAULT_RSS_URL
-                ): str,
-                vol.Optional(
-                    CONF_REGION_FILTER,
-                    default="Tutte"
-                ): vol.In(REGIONS),
-                vol.Optional(
-                    CONF_SECTOR_FILTER,
-                    default="Tutti"
-                ): vol.In(SECTORS),
-            }
-        )
+        # Schema configurazione iniziale
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_RADIUS,
+                default=DEFAULT_RADIUS
+            ): vol.In(RADIUS_OPTIONS),
+            vol.Optional(
+                CONF_FAVORITE_SECTORS,
+                default=[]
+            ): cv.multi_select({sector: sector for sector in SECTORS if sector != "Tutti"}),
+            vol.Optional(
+                CONF_ENABLE_NOTIFICATIONS,
+                default=True
+            ): bool,
+            vol.Optional(
+                CONF_NOTIFICATION_TIME,
+                default=DEFAULT_NOTIFICATION_TIME
+            ): vol.In(NOTIFICATION_TIMES),
+        })
 
         return self.async_show_form(
             step_id="user",
             data_schema=data_schema,
             errors=errors,
+            description_placeholders={
+                "home_location": f"📍 Casa rilevata automaticamente dalle impostazioni Home Assistant"
+            }
         )
 
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        """Get the options flow for this handler."""
-        return ScioperiOptionsFlow(config_entry)
+        """Get options flow handler."""
+        return ScioperiItaliaOptionsFlow(config_entry)
 
 
-class ScioperiOptionsFlow(config_entries.OptionsFlow):
-    """Handle options flow for Scioperi Italia."""
+class ScioperiItaliaOptionsFlow(config_entries.OptionsFlow):
+    """Handle options flow."""
 
     def __init__(self, config_entry):
         """Initialize options flow."""
         self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
-        """Manage the options."""
+        """Manage options."""
         if user_input is not None:
             return self.async_create_entry(title="", data=user_input)
 
+        # Schema opzioni
+        options_schema = vol.Schema({
+            vol.Optional(
+                CONF_RADIUS,
+                default=self.config_entry.options.get(CONF_RADIUS, DEFAULT_RADIUS)
+            ): vol.In(RADIUS_OPTIONS),
+            vol.Optional(
+                CONF_FAVORITE_SECTORS,
+                default=self.config_entry.options.get(CONF_FAVORITE_SECTORS, [])
+            ): cv.multi_select({sector: sector for sector in SECTORS if sector != "Tutti"}),
+            vol.Optional(
+                CONF_ENABLE_NOTIFICATIONS,
+                default=self.config_entry.options.get(CONF_ENABLE_NOTIFICATIONS, True)
+            ): bool,
+            vol.Optional(
+                CONF_NOTIFICATION_TIME,
+                default=self.config_entry.options.get(CONF_NOTIFICATION_TIME, DEFAULT_NOTIFICATION_TIME)
+            ): vol.In(NOTIFICATION_TIMES),
+            vol.Optional(
+                CONF_WORK_LOCATION,
+                description={"suggested_value": self.config_entry.options.get(CONF_WORK_LOCATION, "")}
+            ): str,
+        })
+
         return self.async_show_form(
             step_id="init",
-            data_schema=vol.Schema(
-                {
-                    vol.Optional(
-                        CONF_REGION_FILTER,
-                        default=self.config_entry.data.get(CONF_REGION_FILTER, "Tutte"),
-                    ): vol.In(REGIONS),
-                    vol.Optional(
-                        CONF_SECTOR_FILTER,
-                        default=self.config_entry.data.get(CONF_SECTOR_FILTER, "Tutti"),
-                    ): vol.In(SECTORS),
-                }
-            ),
+            data_schema=options_schema,
+            description_placeholders={
+                "home_location": f"🏠 Casa: {self.config_entry.data.get('home_latitude'):.4f}, {self.config_entry.data.get('home_longitude'):.4f}",
+                "radius_info": f"🎯 Raggio attuale: {self.config_entry.options.get(CONF_RADIUS, DEFAULT_RADIUS)}km",
+            }
         )

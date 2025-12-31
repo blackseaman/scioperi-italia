@@ -1,110 +1,127 @@
-# =================================================================
-# ESEMPI AUTOMAZIONI - SCIOPERI ITALIA
-# =================================================================
+# =================================================
+# AUTOMAZIONI SCIOPERI ITALIA V2.0
+# =================================================
 
-# Notifica giornaliera scioperi oggi
-- alias: "Scioperi - Notifica Mattutina"
-  description: "Notifica alle 7:00 se ci sono scioperi oggi"
-  trigger:
-    - platform: time
-      at: "07:00:00"
-  condition:
-    - condition: numeric_state
-      entity_id: sensor.scioperi_oggi
-      above: 0
-  action:
-    - service: notify.mobile_app_TUO_DISPOSITIVO # Sostituisci con il tuo servizio di notifica
-      data:
-        title: "⚠️ Scioperi Oggi"
-        message: >
-          Attenzione! Oggi ci sono {{ states('sensor.scioperi_oggi') }} scioperi in programma.
-          Controlla il calendario per i dettagli.
-        data:
-          importance: high
-          channel: Scioperi
-          group: scioperi
-
-# Notifica sera prima di sciopero TPL
-- alias: "Scioperi - Avviso TPL Sera Prima"
-  description: "Avvisa la sera prima se domani ci sono scioperi TPL"
+# ===============================================
+# 1. NOTIFICA SCIOPERO VICINO DOMANI
+# ===============================================
+- alias: "Sciopero Vicino Domani"
+  description: "Notifica alle 20:00 se ci sono scioperi vicini domani"
   trigger:
     - platform: time
       at: "20:00:00"
   condition:
+    - condition: numeric_state
+      entity_id: sensor.scioperi_domani
+      above: 0
+  action:
+    - service: notify.mobile_app_phone
+      data:
+        title: "⚠️ Sciopero Domani"
+        message: >
+          🚨 {{ states('sensor.scioperi_domani') }} sciopero/i domani
+          nel raggio di {{ state_attr('sensor.scioperi_vicini', 'radius_km') }}km!
+          
+          {% for strike in state_attr('sensor.scioperi_domani', 'strikes')[:3] %}
+          • {{ strike.sector }} - {{ strike.region }} ({{ strike.distance }})
+          {% endfor %}
+        data:
+          priority: high
+          ttl: 0
+
+# ===============================================
+# 2. NOTIFICA SCIOPERO TPL VICINO
+# ===============================================
+- alias: "Sciopero TPL Vicino"
+  description: "Notifica quando rileva sciopero TPL nel raggio"
+  trigger:
+    - platform: state
+      entity_id: sensor.scioperi_tpl
+  condition:
     - condition: template
       value_template: >
-        {% set tomorrow = (now() + timedelta(days=1)).date() %}
         {% set strikes = state_attr('sensor.scioperi_tpl', 'strikes') %}
-        {{ strikes and strikes | selectattr('start_date', 'match', tomorrow | string) | list | length > 0 }}
+        {{ strikes | selectattr('in_radius', 'equalto', true) | list | length > 0 }}
   action:
     - service: notify.telegram
       data:
-        title: "🚌 Sciopero TPL Domani"
+        title: "🚌 Sciopero TPL Vicino"
         message: >
-          Domani è previsto uno sciopero del trasporto pubblico locale.
-          Pianifica percorsi alternativi!
+          Sciopero Trasporto Pubblico Locale rilevato nel tuo raggio!
+          
+          {% set strikes = state_attr('sensor.scioperi_tpl', 'strikes') %}
+          {% for strike in strikes %}
+          {% if strike.in_radius %}
+          📍 {{ strike.region }} ({{ strike.distance }})
+          📅 {{ strike.start_date }}
+          ⏰ {{ strike.modality }}
+          {% endif %}
+          {% endfor %}
 
-# Notifica sciopero aerei
-- alias: "Scioperi - Alert aerei"
-  description: "Notifica quando vengono annunciati scioperi aerei"
-  trigger:
-    - platform: state
-      entity_id: sensor.scioperi_aereo
-  condition:
-    - condition: template
-      value_template: "{{ trigger.to_state.state | int > trigger.from_state.state | int }}"
-  action:
-    - service: notify.mobile_app_TUO_DISPOSITIVO # Sostituisci con il tuo servizio di notifica
-      data:
-        title: "✈️ Nuovo Sciopero aereo"
-        message: >
-          Annunciato nuovo sciopero nel settore aereo.
-          {{ states('sensor.scioperi_aereo') }} scioperi in totale.
-          Data: {{ state_attr('sensor.scioperi_prossimo', 'start_date') }}
-
-# Notifica sciopero treni
-- alias: "Scioperi - Alert treni"
-  description: "Notifica quando vengono annunciati scioperi ferroviari"
-  trigger:
-    - platform: state
-      entity_id: sensor.scioperi_ferroviario
-  condition:
-    - condition: template
-      value_template: "{{ trigger.to_state.state | int > trigger.from_state.state | int }}"
-  action:
-    - service: persistent_notification.create
-      data:
-        title: "🚂 Nuovo sciopero ferroviario"
-        message: >
-          Attenzione! Annunciato sciopero ferroviario.
-          Dettagli: {{ state_attr('sensor.scioperi_prossimo', 'modality') }}
-
-# Notifica settimanale riepilogo
-- alias: "Scioperi - Riepilogo settimanale"
-  description: "Riepilogo settimanale notificato la domenica sera alle ore 18:00 degli scioperi della settimana prevista"
+# ===============================================
+# 3. CONTROLLO PERCORSO CASA-LAVORO (Mattina)
+# ===============================================
+- alias: "Controlla scioperi nel percorso casa-lavoro"
+  description: "Controlla scioperi lungo il percorso casa-lavoro ogni mattina"
   trigger:
     - platform: time
-      at: "18:00:00"
+      at: "07:00:00"
   condition:
-    - condition: time
-      weekday:
-        - sun
+    - condition: state
+      entity_id: binary_sensor.workday_sensor  # Opzionale
+      state: "on"
   action:
-    - service: notify.telegram
+    - service: scioperi_italia.check_route
       data:
-        title: "📅 Riepilogo scioperi settimana"
+        destination_lat: 44.7007  # Sostituisci con coordinate lavoro
+        destination_lon: 8.0357
+        radius_km: 10
+    - wait_for_trigger:
+        - platform: event
+          event_type: scioperi_italia_route_check_result
+      timeout: "00:00:05"
+    - service: notify.mobile_app_phone
+      data:
+        title: "📍 Controllo Percorso"
         message: >
-          Ecco gli scioperi previsti questa settimana:
-          
-          TPL: {{ states('sensor.scioperi_tpl') }}
-          Aerei: {{ states('sensor.scioperi_aereo') }}
-          Treni: {{ states('sensor.scioperi_ferroviario') }}
-          
-          Totale: {{ states('sensor.scioperi_totali') }}
+          {% if wait.trigger.event.data.strikes_found > 0 %}
+          ⚠️ {{ wait.trigger.event.data.strikes_found }} sciopero/i rilevati 
+          lungo il tuo percorso casa-lavoro!
+          {% else %}
+          ✅ Nessuno sciopero lungo il percorso oggi
+          {% endif %}
 
-# TTS notifica sciopero mattina
-- alias: "Scioperi - Annuncio vocale alle ore 08:00"
-  description: "Annuncio vocale se ci sono scioperi oggi"
+# ===============================================
+# 4. NOTIFICA SCIOPERO SETTORI PREFERITI
+# ===============================================
+- alias: "Sciopero settori preferiti"
+  description: "Notifica quando c'è uno sciopero nei tuoi settori preferiti"
+  trigger:
+    - platform: state
+      entity_id: sensor.scioperi_preferiti
+  condition:
+    - condition: numeric_state
+      entity_id: sensor.scioperi_preferiti
+      above: 0
+  action:
+    - service: scioperi_italia.notify_strike
+      data:
+        title: "⭐ Sciopero Settore Preferito"
+        message: >
+          Nuovo sciopero rilevato in un tuo settore preferito!
+          
+          {% set strikes = state_attr('sensor.scioperi_preferiti', 'strikes') %}
+          {% for strike in strikes[:2] %}
+          • {{ strike.sector }}
+          📅 {{ strike.start_date }}
+          📍 {{ strike.region }} ({{ strike.distance }})
+          {% endfor %}
+
+# ===============================================
+# 5. PROMEMORIA SCIOPERO OGGI
+# ===============================================
+- alias: "Promemoria sciopero oggi"
+  description: "Notifica mattina se ci sono scioperi oggi"
   trigger:
     - platform: time
       at: "08:00:00"
@@ -113,9 +130,108 @@
       entity_id: sensor.scioperi_oggi
       above: 0
   action:
+    - service: notify.persistent_notification
+      data:
+        title: "🚨 SCIOPERO OGGI"
+        message: >
+          Attenzione! {{ states('sensor.scioperi_oggi') }} sciopero/i in corso oggi.
+          
+          {% for strike in state_attr('sensor.scioperi_oggi', 'strikes') %}
+          • {{ strike.sector }} - {{ strike.modality }}
+          {% endfor %}
+
+# ===============================================
+# 6. MONITORAGGIO CONTINUO SCIOPERI VICINI
+# ===============================================
+- alias: "Monitora scioperi vicini"
+  description: "Notifica quando cambiano scioperi nel raggio"
+  trigger:
+    - platform: state
+      entity_id: sensor.scioperi_vicini
+  condition:
+    - condition: template
+      value_template: "{{ trigger.to_state.state | int > trigger.from_state.state | int }}"
+  action:
+    - service: notify.mobile_app_phone
+      data:
+        title: "📍 Nuovo sciopero vicino"
+        message: >
+          Rilevato nuovo sciopero nel raggio di {{ state_attr('sensor.scioperi_vicini', 'radius_km') }}km!
+          
+          Totale: {{ states('sensor.scioperi_vicini') }} scioperi vicini
+          
+          Prossimo: {{ states('sensor.scioperi_prossimo_vicino') }}
+
+# ===============================================
+# 7. NOTIFICA SETTIMANALE RIEPILOGO
+# ===============================================
+- alias: "Riepilogo settimanale scioperi"
+  description: "Riepilogo domenica sera degli scioperi della settimana"
+  trigger:
+    - platform: time
+      at: "20:00:00"
+  condition:
+    - condition: time
+      weekday:
+        - sun
+  action:
+    - service: notify.telegram
+      data:
+        title: "📊 Riepilogo scioperi settimana"
+        message: >
+          📅 Scioperi previsti prossima settimana:
+          
+          🎯 Nel tuo raggio: {{ states('sensor.scioperi_vicini') }}
+          📍 Totali: {{ states('sensor.scioperi_totali') }}
+          
+          ⭐ Settori preferiti: {{ states('sensor.scioperi_preferiti') }}
+          
+          Prossimo vicino: {{ states('sensor.scioperi_prossimo_vicino') }}
+
+# ===============================================
+# 8. ALERT SONORO SCIOPERO OGGI
+# ===============================================
+- alias: "Alert sonoro sciopero oggi"
+  description: "TTS quando c'è sciopero oggi"
+  trigger:
+    - platform: numeric_state
+      entity_id: sensor.scioperi_oggi
+      above: 0
+  condition:
+    - condition: time
+      after: "07:00:00"
+      before: "09:00:00"
+  action:
     - service: tts.google_translate_say
-      entity_id: media_player.soggiorno
+      entity_id: media_player.google_home
       data:
         message: >
-          Attenzione. Oggi sono previsti {{ states('sensor.scioperi_oggi') }} scioperi.
-          Settore {{ state_attr('sensor.scioperi_prossimo', 'sector') }}.
+          Attenzione! Oggi ci sono {{ states('sensor.scioperi_oggi') }} scioperi 
+          in programma nel tuo raggio.
+
+# ===============================================
+# 9. EVENTO PERSONALIZZATO SCIOPERO DOMANI
+# ===============================================
+- alias: "Evento sciopero domani"
+  description: "Ascolta eventi sciopero domani e agisci"
+  trigger:
+    - platform: event
+      event_type: scioperi_italia_strike_tomorrow
+  action:
+    - service: light.turn_on
+      target:
+        entity_id: light.notification_light
+      data:
+        color_name: red
+        brightness: 255
+    - delay: "00:00:03"
+    - service: light.turn_off
+      target:
+        entity_id: light.notification_light
+    - service: notify.mobile_app_phone
+      data:
+        title: "⚠️ {{ trigger.event.data.sector }}"
+        message: >
+          Sciopero domani: {{ trigger.event.data.sector }}
+          Distanza: {{ trigger.event.data.distance }}km
+          Modalità: {{ trigger.event.data.modality }}
